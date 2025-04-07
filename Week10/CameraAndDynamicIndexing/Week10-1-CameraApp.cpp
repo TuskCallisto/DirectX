@@ -6,6 +6,7 @@
 #include "../../Common/MathHelper.h"
 #include "../../Common/UploadBuffer.h"
 #include "../../Common/GeometryGenerator.h"
+//step1
 #include "../../Common/Camera.h"
 #include "FrameResourceOld.h"
 
@@ -73,6 +74,8 @@ private:
     virtual void OnMouseMove(WPARAM btnState, int x, int y)override;
 
     void OnKeyboardInput(const GameTimer& gt);
+	//step12
+	//	void UpdateCamera(const GameTimer& gt);
 	void AnimateMaterials(const GameTimer& gt);
 	void UpdateObjectCBs(const GameTimer& gt);
 	void UpdateMaterialCBs(const GameTimer& gt);
@@ -119,7 +122,7 @@ private:
 
     PassConstants mMainPassCB;
 
-	//step1: remove all the old variables from our application class that were related to the orbital camera system such as mPhi, mTheta, mRadius. 
+	//step2: remove all the old variables from our application class that were related to the orbital camera system such as mPhi, mTheta, mRadius. 
 	//float mTheta = 1.5f * XM_PI;
 	//float mPhi = 0.2f * XM_PI;
 	//float mRadius = 15.0f;
@@ -127,6 +130,7 @@ private:
 	//XMFLOAT4X4 mView = MathHelper::Identity4x4();
 	//XMFLOAT4X4 mProj = MathHelper::Identity4x4();
 
+	//step3
 	Camera mCamera;
 	//*************************************************
 
@@ -179,6 +183,7 @@ bool CameraApp::Initialize()
 	// so we have to query this information.
     mCbvSrvDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
+	//step2
 	mCamera.SetPosition(0.0f, 2.0f, -15.0f);
  
 	LoadTextures();
@@ -206,17 +211,20 @@ void CameraApp::OnResize()
 {
     D3DApp::OnResize();
 
-	//step2: When the window is resized, we no longer rebuild the projection matrix explicitly, 
+	//step4: When the window is resized, we no longer rebuild the projection matrix explicitly, 
 	//and instead delegate the work to the Camera class with SetLens:
 	//XMMATRIX P = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
 	//XMStoreFloat4x4(&mProj, P);
 
+	//step5
 	mCamera.SetLens(0.25f*MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
 }
 
 void CameraApp::Update(const GameTimer& gt)
 {
     OnKeyboardInput(gt);
+	//step14
+	//	UpdateCamera(gt);
 
     // Cycle through the circular frame resource array.
     mCurrFrameResourceIndex = (mCurrFrameResourceIndex + 1) % gNumFrameResources;
@@ -320,11 +328,12 @@ void CameraApp::OnMouseMove(WPARAM btnState, int x, int y)
 		float dx = XMConvertToRadians(0.25f*static_cast<float>(x - mLastMousePos.x));
 		float dy = XMConvertToRadians(0.25f*static_cast<float>(y - mLastMousePos.y));
 
-		//step4: Instead of updating the angles based on input to orbit camera around scene, 
+		//step6: Instead of updating the angles based on input to orbit camera around scene, 
 		//we rotate the camera’s look direction:
 		//mTheta += dx;
 		//mPhi += dy;
 
+		//step7
 		mCamera.Pitch(dy);
 		mCamera.RotateY(dx);
     }
@@ -335,7 +344,7 @@ void CameraApp::OnMouseMove(WPARAM btnState, int x, int y)
  
 void CameraApp::OnKeyboardInput(const GameTimer& gt)
 {
-	//step3: we handle keyboard input to move the camera:
+	//step8: we handle keyboard input to move the camera:
 
 	const float dt = gt.DeltaTime();
 
@@ -354,6 +363,24 @@ void CameraApp::OnKeyboardInput(const GameTimer& gt)
 
 	mCamera.UpdateViewMatrix();
 }
+
+
+//step11
+//void CameraApp::UpdateCamera(const GameTimer& gt)
+//{
+//	// Convert Spherical to Cartesian coordinates.
+//	mEyePos.x = mRadius * sinf(mPhi) * cosf(mTheta);
+//	mEyePos.z = mRadius * sinf(mPhi) * sinf(mTheta);
+//	mEyePos.y = mRadius * cosf(mPhi);
+
+//	// Build the view matrix.
+//	XMVECTOR pos = XMVectorSet(mEyePos.x, mEyePos.y, mEyePos.z, 1.0f);
+//	XMVECTOR target = XMVectorZero();
+//	XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);/
+
+//	XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
+//	XMStoreFloat4x4(&mView, view);
+//}
  
 void CameraApp::AnimateMaterials(const GameTimer& gt)
 {
@@ -412,6 +439,10 @@ void CameraApp::UpdateMaterialCBs(const GameTimer& gt)
 
 void CameraApp::UpdateMainPassCB(const GameTimer& gt)
 {
+
+	//step9
+	//XMMATRIX view = XMLoadFloat4x4(&mView);
+	//XMMATRIX proj = XMLoadFloat4x4(&mProj);
 	XMMATRIX view = mCamera.GetView();
 	XMMATRIX proj = mCamera.GetProj();
 
