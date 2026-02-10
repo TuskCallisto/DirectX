@@ -91,15 +91,15 @@ public:
 /// Creates a Torus centered at the origin with the given radius.  The
 /// slices and stacks parameters control the degree of tessellation.
 ///</summary>
-	MeshData CreateRectangle(float width, float height, float depth);
+	MeshData CreateRectangle(float width, float height, float depth, uint32 numSubdivisions);
 
-	MeshData CreateTriangularPrism(float base, float height, float depth);
+	MeshData CreateTriangularPrism(float base, float height, float depth uint32 numSubdivisions);
 
 	MeshData CreateCone(float bottom, float height, uint32 sliceCount, uint32 stackCount);
 
 	MeshData CreateDiamond(float radius, float height, uint32 sliceCount, uint32 stackCount);
 
-	MeshData CreatePyramid(float base, float height);
+	MeshData CreatePyramid(float base, float height, uint32 sliceCount, uint32 stackCount);
 	
 	MeshData CreateWedge(float base, float height, float depth);
 
