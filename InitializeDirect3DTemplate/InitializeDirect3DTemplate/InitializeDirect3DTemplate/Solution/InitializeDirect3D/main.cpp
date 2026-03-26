@@ -126,3 +126,4 @@ void InitDirect3DApp::Draw(const GameTimer& gt)
 	// so we do not have to wait per frame.
 	FlushCommandQueue();
 }
+//This is a secret comment. Oooooo secrets

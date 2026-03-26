@@ -25,12 +25,24 @@ struct PassConstants
     float FarZ = 0.0f;
     float TotalTime = 0.0f;
     float DeltaTime = 0.0f;
-};
+    DirectX::XMFLOAT4 AmbientLight = { 0.0f, 0.0f, 0.0f, 1.0f };
+    DirectX::XMFLOAT3 DirectionalLightDirection = { 0.0f, -1.0f, 0.0f };
+    float Pad1 = 0.0f;
+    DirectX::XMFLOAT3 DirectionalLightColor = { 0.0f, 0.0f, 0.0f };
+    float Pad2 = 0.0f;
 
+    DirectX::XMFLOAT4 PointLightPositions[10];
+    DirectX::XMFLOAT4 PointLightColors[10];
+    float PointLightRanges[10];
+    int NumPointLights = 0;
+    DirectX::XMFLOAT3 Pad3 = { 0.0f, 0.0f, 0.0f };
+};
 struct Vertex
 {
     DirectX::XMFLOAT3 Pos;
     DirectX::XMFLOAT4 Color;
+    DirectX::XMFLOAT2 Tex;
+    DirectX::XMFLOAT3 Normal;
 };
 
 // Step2: we usually use a circular array of three frame resource elements.The idea is that for frame n, the CPU will

@@ -98,3 +98,4 @@ private:
 };
 
 #endif // CAMERA_H
+//Idea: Make the camera only show ultraviolet light to anger the teacher
