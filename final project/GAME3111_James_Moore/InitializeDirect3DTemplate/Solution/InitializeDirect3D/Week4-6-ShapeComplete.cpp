@@ -20,6 +20,7 @@
 #include "../../Common/GeometryGenerator.h"
 #include "FrameResource.h"
 #include "../../Common/DDSTextureLoader.h"
+#include "../../Common/Camera.h"
 #include <d3dcompiler.h> 
 #pragma comment(lib, "d3dcompiler.lib")
 
@@ -99,6 +100,8 @@ private:
 	void BuildRootSignature();
 	void BuildShadersAndInputLayout();
 	void BuildShapeGeometry();
+	void BuildMazeGeometry();
+	bool CheckCollision(const XMFLOAT3& newPosition, float radius = 0.5f);
 	void BuildTreeSpritesGeometry();
 	void BuildPSOs();
 	void BuildFrameResources();
@@ -114,6 +117,12 @@ private:
 		std::wstring Filename;
 		Microsoft::WRL::ComPtr<ID3D12Resource> Resource = nullptr;
 		Microsoft::WRL::ComPtr<ID3D12Resource> UploadHeap = nullptr;
+	};
+
+	struct Wall
+	{
+		XMFLOAT3 Min;
+		XMFLOAT3 Max;
 	};
 
 	std::vector<std::unique_ptr<FrameResource>> mFrameResources;
@@ -140,20 +149,15 @@ private:
 	std::vector<RenderItem*> mOpaqueRitems;
 	std::vector<RenderItem*> mTransparentRitems;
 	std::vector<RenderItem*> mRitemLayer[(int)RenderLayer::Count];
-
+	std::vector<Wall> mMazeWalls;
 	PassConstants mMainPassCB;
 
 	UINT mPassCbvOffset = 0;
 
 	bool mIsWireframe = false;
 
-	XMFLOAT3 mEyePos = { 0.0f, 0.0f, 0.0f };
-	XMFLOAT4X4 mView = MathHelper::Identity4x4();
+	Camera mCamera;
 	XMFLOAT4X4 mProj = MathHelper::Identity4x4();
-
-	float mTheta = 1.5f * XM_PI;
-	float mPhi = 0.2f * XM_PI;
-	float mRadius = 15.0f;
 
 	POINT mLastMousePos;
 };
@@ -205,6 +209,7 @@ bool ShapesApp::Initialize()
 	BuildShadersAndInputLayout();
 	BuildShapeGeometry();
 	BuildTreeSpritesGeometry();
+	BuildMazeGeometry();
 	BuildRenderItems();
 	BuildFrameResources();
 	BuildDescriptorHeaps();
@@ -219,7 +224,12 @@ bool ShapesApp::Initialize()
 
 	// Wait until initialization is complete.
 	FlushCommandQueue();
-
+	mCamera.SetPosition(0.0f, 2.0f, -40.0f);
+	mCamera.LookAt(
+		XMFLOAT3(0.0f, 2.0f, -45.0f),
+		XMFLOAT3(0.0f, 2.0f, -30.0f),
+		XMFLOAT3(0.0f, 1.0f, 0.0f)
+	);
 	return true;
 }
 
@@ -349,28 +359,11 @@ void ShapesApp::OnMouseMove(WPARAM btnState, int x, int y)
 {
 	if ((btnState & MK_LBUTTON) != 0)
 	{
-		// Make each pixel correspond to a quarter of a degree.
 		float dx = XMConvertToRadians(0.25f * static_cast<float>(x - mLastMousePos.x));
 		float dy = XMConvertToRadians(0.25f * static_cast<float>(y - mLastMousePos.y));
 
-		// Update angles based on input to orbit camera around box.
-		mTheta += dx;
-		mPhi += dy;
-
-		// Restrict the angle mPhi.
-		mPhi = MathHelper::Clamp(mPhi, 0.1f, MathHelper::Pi - 0.1f);
-	}
-	else if ((btnState & MK_RBUTTON) != 0)
-	{
-		// Make each pixel correspond to 0.2 unit in the scene.
-		float dx = 0.05f * static_cast<float>(x - mLastMousePos.x);
-		float dy = 0.05f * static_cast<float>(y - mLastMousePos.y);
-
-		// Update the camera radius based on input.
-		mRadius += dx - dy;
-
-		// Restrict the radius.
-		mRadius = MathHelper::Clamp(mRadius, 5.0f, 150.0f);
+		mCamera.RotateY(dx);
+		mCamera.Pitch(dy);
 	}
 
 	mLastMousePos.x = x;
@@ -387,18 +380,36 @@ void ShapesApp::OnKeyboardInput(const GameTimer& gt)
 
 void ShapesApp::UpdateCamera(const GameTimer& gt)
 {
-	// Convert Spherical to Cartesian coordinates.
-	mEyePos.x = mRadius * sinf(mPhi) * cosf(mTheta);
-	mEyePos.z = mRadius * sinf(mPhi) * sinf(mTheta);
-	mEyePos.y = mRadius * cosf(mPhi);
+	const float dt = gt.DeltaTime();
+	const float speed = 5.0f;
 
-	// Build the view matrix.
-	XMVECTOR pos = XMVectorSet(mEyePos.x, mEyePos.y, mEyePos.z, 1.0f);
-	XMVECTOR target = XMVectorZero();
-	XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+	XMFLOAT3 oldPos = mCamera.GetPosition3f();
 
-	XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
-	XMStoreFloat4x4(&mView, view);
+	if (GetAsyncKeyState('W') & 0x8000 || GetAsyncKeyState(VK_UP) & 0x8000)
+		mCamera.Walk(speed * dt);
+
+	if (GetAsyncKeyState('S') & 0x8000 || GetAsyncKeyState(VK_DOWN) & 0x8000)
+		mCamera.Walk(-speed * dt);
+
+	if (GetAsyncKeyState('A') & 0x8000 || GetAsyncKeyState(VK_LEFT) & 0x8000)
+		mCamera.Strafe(-speed * dt);
+
+	if (GetAsyncKeyState('D') & 0x8000 || GetAsyncKeyState(VK_RIGHT) & 0x8000)
+		mCamera.Strafe(speed * dt);
+
+	XMFLOAT3 newPos = mCamera.GetPosition3f();
+	newPos.y = 2.0f;
+
+	if (CheckCollision(newPos, 0.5f))
+	{
+		oldPos.y = 2.0f;
+		mCamera.SetPosition(oldPos);
+	}
+	else
+	{
+		mCamera.SetPosition(newPos);
+	}
+	mCamera.UpdateViewMatrix();
 }
 
 void ShapesApp::UpdateObjectCBs(const GameTimer& gt)
@@ -425,8 +436,9 @@ void ShapesApp::UpdateObjectCBs(const GameTimer& gt)
 
 void ShapesApp::UpdateMainPassCB(const GameTimer& gt)
 {
-	XMMATRIX view = XMLoadFloat4x4(&mView);
-	XMMATRIX proj = XMLoadFloat4x4(&mProj);
+	XMMATRIX view = mCamera.GetView();
+	XMMATRIX proj = mCamera.GetProj();
+	mMainPassCB.EyePosW = mCamera.GetPosition3f();
 
 	XMMATRIX viewProj = XMMatrixMultiply(view, proj);
 	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
@@ -439,7 +451,6 @@ void ShapesApp::UpdateMainPassCB(const GameTimer& gt)
 	XMStoreFloat4x4(&mMainPassCB.InvProj, XMMatrixTranspose(invProj));
 	XMStoreFloat4x4(&mMainPassCB.ViewProj, XMMatrixTranspose(viewProj));
 	XMStoreFloat4x4(&mMainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
-	mMainPassCB.EyePosW = mEyePos;
 	mMainPassCB.RenderTargetSize = XMFLOAT2((float)mClientWidth, (float)mClientHeight);
 	mMainPassCB.InvRenderTargetSize = XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
 	mMainPassCB.NearZ = 1.0f;
@@ -1098,6 +1109,194 @@ void ShapesApp::BuildTreeSpritesGeometry()
 	mGeometries["treeSpritesGeo"] = std::move(geo);
 }
 
+void ShapesApp::BuildMazeGeometry()
+{
+	GeometryGenerator geoGen;
+
+	int mazeLayout[10][10] = {
+		{1,1,1,0,1,1,1,1,1,1},
+		{1,0,0,0,0,0,0,0,0,1},
+		{1,0,1,1,1,1,1,1,0,1},
+		{1,0,0,0,0,0,0,1,0,1},
+		{1,1,1,0,1,1,0,1,0,1},
+		{1,0,0,0,1,0,0,0,0,1},
+		{1,0,1,1,1,0,1,1,1,1},
+		{1,0,0,0,0,0,0,0,0,1},
+		{1,0,0,0,1,1,1,1,0,1},
+		{1,1,1,1,1,1,1,1,0,1}
+	};
+
+	const float cellSize = 2.0f;
+	const float wallHeight = 2.0f;
+	const float wallThickness = 1.0f;
+	const float originX = -5.0f * cellSize;
+	const float originZ = -5.0f * cellSize + -30.0f;
+
+	std::vector<Vertex> vertices;
+	std::vector<std::uint16_t> indices;
+	UINT baseVertex = 0;
+
+	bool usedHoriz[10][10] = {};
+	bool usedVert[10][10] = {};
+
+	auto addWallSegment = [&](float cx, float cz, float scaleX, float scaleZ)
+		{
+			GeometryGenerator::MeshData box =
+				geoGen.CreateBox(scaleX, wallHeight, scaleZ, 0);
+
+			for (auto& v : box.Vertices)
+			{
+				Vertex vert;
+				vert.Pos = { v.Position.x + cx, v.Position.y + 1.0f, v.Position.z + cz };
+				vert.Color = { 0.5f, 0.5f, 0.5f, 1.0f };
+				vert.Tex = v.TexC;
+				vert.Normal = v.Normal;
+				vertices.push_back(vert);
+			}
+
+			for (auto idx : box.Indices32)
+				indices.push_back(baseVertex + (std::uint16_t)idx);
+
+			baseVertex += (UINT)box.Vertices.size();
+
+			Wall w;
+			w.Min = { cx - scaleX * 0.5f, 0.0f, cz - scaleZ * 0.5f };
+			w.Max = { cx + scaleX * 0.5f, wallHeight + 1.0f, cz + scaleZ * 0.5f };
+			mMazeWalls.push_back(w);
+		};
+
+	for (int row = 0; row < 10; ++row)
+	{
+		int col = 0;
+		while (col < 10)
+		{
+			if (mazeLayout[row][col] == 1 && !usedHoriz[row][col])
+			{
+				int runEnd = col;
+				while (runEnd + 1 < 10 && mazeLayout[row][runEnd + 1] == 1)
+					++runEnd;
+
+				int runLen = runEnd - col + 1;
+
+				if (runLen > 1)
+				{
+					float cx = originX + (col + runEnd) * 0.5f * cellSize;
+					float cz = originZ + row * cellSize;
+					float scaleX = runLen * cellSize;
+					float scaleZ = wallThickness;
+
+					addWallSegment(cx, cz, scaleX, scaleZ);
+
+					for (int c = col; c <= runEnd; ++c)
+						usedHoriz[row][c] = true;
+
+					col = runEnd + 1;
+				}
+				else
+				{
+					++col;
+				}
+			}
+			else
+			{
+				++col;
+			}
+		}
+	}
+
+	for (int col = 0; col < 10; ++col)
+	{
+		int row = 0;
+		while (row < 10)
+		{
+			if (mazeLayout[row][col] == 1 && !usedVert[row][col])
+			{
+				int runEnd = row;
+				while (runEnd + 1 < 10 && mazeLayout[runEnd + 1][col] == 1)
+					++runEnd;
+
+				int runLen = runEnd - row + 1;
+
+				if (runLen > 1)
+				{
+					float cx = originX + col * cellSize;
+					float cz = originZ + (row + runEnd) * 0.5f * cellSize;
+					float scaleX = wallThickness;
+					float scaleZ = runLen * cellSize;
+
+					addWallSegment(cx, cz, scaleX, scaleZ);
+
+					for (int r = row; r <= runEnd; ++r)
+						usedVert[r][col] = true;
+
+					row = runEnd + 1;
+				}
+				else
+				{
+					++row;
+				}
+			}
+			else
+			{
+				++row;
+			}
+		}
+	}
+
+	for (int row = 0; row < 10; ++row)
+		for (int col = 0; col < 10; ++col)
+			if (mazeLayout[row][col] == 1 && !usedHoriz[row][col] && !usedVert[row][col])
+			{
+				float cx = originX + col * cellSize;
+				float cz = originZ + row * cellSize;
+				addWallSegment(cx, cz, wallThickness, wallThickness);
+			}
+
+	const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+	const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+
+	auto geo = std::make_unique<MeshGeometry>();
+	geo->Name = "mazeGeo";
+
+	ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+	CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+	ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+	CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+	geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+		mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+	geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+		mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+	geo->VertexByteStride = sizeof(Vertex);
+	geo->VertexBufferByteSize = vbByteSize;
+	geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+	geo->IndexBufferByteSize = ibByteSize;
+
+	SubmeshGeometry mazeSubmesh;
+	mazeSubmesh.IndexCount = (UINT)indices.size();
+	mazeSubmesh.StartIndexLocation = 0;
+	mazeSubmesh.BaseVertexLocation = 0;
+	geo->DrawArgs["maze"] = mazeSubmesh;
+
+	mGeometries[geo->Name] = std::move(geo);
+}
+bool ShapesApp::CheckCollision(const XMFLOAT3& newPosition, float radius)
+{
+	for (const auto& wall : mMazeWalls)
+	{
+		bool collisionX = newPosition.x + radius >= wall.Min.x &&
+			newPosition.x - radius <= wall.Max.x;
+		bool collisionY = newPosition.y + radius >= wall.Min.y &&
+			newPosition.y - radius <= wall.Max.y;
+		bool collisionZ = newPosition.z + radius >= wall.Min.z &&
+			newPosition.z - radius <= wall.Max.z;
+		if (collisionX && collisionY && collisionZ)
+			return true;
+	}
+	return false;
+}
+
 void ShapesApp::LoadTextures()
 {
 	auto stoneTexture = std::make_unique<Texture>();
@@ -1555,10 +1754,21 @@ void ShapesApp::BuildRenderItems()
 	waterRitem->BaseVertexLocation = waterRitem->Geo->DrawArgs["waterGrid"].BaseVertexLocation;
 	mAllRitems.push_back(std::move(waterRitem));
 
+	auto mazeRitem = std::make_unique<RenderItem>();
+	mazeRitem->World = MathHelper::Identity4x4();
+	mazeRitem->ObjCBIndex = objCBIndex++;
+	mazeRitem->TextureIndex = 1;
+	mazeRitem->Geo = mGeometries["mazeGeo"].get();
+	mazeRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;	
+	mazeRitem->IndexCount = mazeRitem->Geo->DrawArgs["maze"].IndexCount;
+	mazeRitem->StartIndexLocation = mazeRitem->Geo->DrawArgs["maze"].StartIndexLocation;
+	mazeRitem->BaseVertexLocation = mazeRitem->Geo->DrawArgs["maze"].BaseVertexLocation;
+	mAllRitems.push_back(std::move(mazeRitem));
+
 	// All the render items are opaque.
 	for (size_t i = 0; i < mAllRitems.size(); ++i)
 	{
-		if (i == mAllRitems.size() - 1)
+		if (i == mAllRitems.size() - 2)
 		{
 			mTransparentRitems.push_back(mAllRitems[i].get());
 		}
@@ -1600,3 +1810,59 @@ void ShapesApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::v
 	}
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//Secret plans for taking over the world here
